@@ -70,7 +70,7 @@ size_t nr_free_pages(void) {
     return pmm_manager->nr_free_pages();
 }
 
-//lab2 function1
+//lab2 function1 2411846 2411564
 // page_init - build the page descriptor array and register the free memory
 static void page_init(void) {
     extern char end[];
@@ -168,7 +168,48 @@ void pmm_init(void) {
     cprintf("satp virtual address: 0x%016lx\nsatp physical address: 0x%016lx\n", satp_virtual, satp_physical);
 }
 
-static void check_alloc_page(void) {
-    pmm_manager->check();
-    cprintf("check_alloc_page() succeeded!\n");
+//lab2 --------------page_init()另一版本---------2411564
+/*
+static void page_init(void) {
+    uint64_t mem_base = get_memory_base();
+    uint64_t mem_size = get_memory_size();
+    if (mem_base != DRAM_BASE || mem_size == 0) {
+        panic("page_init: invalid physical memory info from DTB");
+    }
+    cprintf("Physical Memory: base=0x%016lx, size=0x%016lx (%ld MB)\n",
+            mem_base, mem_size, mem_size / (1024 * 1024));
+            
+    va_pa_offset = PHYSICAL_MEMORY_OFFSET;
+    
+    uint64_t mem_end = mem_base + mem_size;
+    npage = mem_end / PGSIZE;
+    
+    uintptr_t pages_va = ROUNDUP((uintptr_t)end, PGSIZE);
+    pages = (struct Page *)pages_va;
+    
+    for (size_t i = nbase; i < npage; i++) {
+        struct Page *p = &pages[i - nbase];
+        p->flags = 0;
+        p->property = 0;
+        set_page_ref(p, 0);
+        SetPageReserved(p);
+    }
+    
+    uintptr_t pages_end_va = pages_va + (npage - nbase) * sizeof(struct Page);
+    uintptr_t free_start_pa = ROUNDUP(PADDR(pages_end_va), PGSIZE);
+    
+    uintptr_t free_end_pa = ROUNDDOWN(mem_end, PGSIZE);
+    if (free_start_pa >= free_end_pa) {
+        cprintf("page_init: no free pages available\n");
+        return;
+    }
+    
+    struct Page *base = pa2page(free_start_pa);
+    size_t n = (free_end_pa - free_start_pa) / PGSIZE;
+
+    cprintf("page_init: free physical pages [0x%016lx, 0x%016lx), %ld pages\n",
+            free_start_pa, free_end_pa, n);
+            
+    init_memmap(base, n);
 }
+*/
