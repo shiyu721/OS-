@@ -407,42 +407,44 @@ struct pmm_manager {
 
 ---
 
-### Challenge：分支任务‑GDB 调试页表查询过程
+### 分支任务：GDB 调试页表查询过程
 
-**负责人：** 2411690‑白诗雨
+**负责人：** 2411690-白诗雨
 
-1. QEMU 源码中与地址翻译相关的调用路径分析：
-在 RISC‑V 架构的 QEMU 模拟中，CPU 执行访存指令时，如果 TLB Miss，会触发异常并进入 `target/riscv/cpu_helper.c` 中的 `riscv_cpu_tlb_fill` 函数。
-在此函数内部，会调用 `get_physical_address` 进行真正的多级页表遍历，利用 SATP 寄存器存放的根页表物理基地址，逐级遍历多级页表、校验页表项有效性，完成 Sv39 虚拟地址到物理地址的翻译。
-2. GDB 双层调试操作流程：
+**1. QEMU 源码中与地址翻译相关的调用路径分析**
+在 RISC-V 架构的 QEMU 模拟中，CPU 执行访存指令时，如果 TLB Miss，会触发异常并进入慢速查表逻辑。根据调试截图一（调用栈与参数图）中的 `bt`（backtrace）输出，我们可以清晰地看到 QEMU 模拟硬件 MMU 的完整调用链路：
+`breakpoint_invalidate` -> `cpu_get_phys_page_attrs_debug` -> `riscv_cpu_get_phys_page_debug` -> `get_physical_address`。这证明了在软件模拟层面，QEMU 是如何一步步接管并处理一次真实的地址翻译请求的。
 
-> 
-> 环境一共开启三个终端窗口：
-> 
-> 
-> - 终端 1：执行 `make debug`，启动 QEMU 模拟器，等待 GDB 连接，不做输入操作。
-> - 终端 3（优先连接）：执行 `make gdb`，通过 `target remote :1234` 远程调试 ucore 内核，设置断点 `b kern_init`，此时不执行继续。
-> - 终端 2：使用 gdb attach QEMU 进程 PID；设置信号处理 `handle SIGPIPE nostop noprint`；在 TLB 缺失入口下断点 `b riscv_cpu_tlb_fill`。
-> - 最后回到终端 3 输入 `c`，内核运行到 `kern_init`；使用 `si` 单步汇编指令。
-> - 当执行取指、load、store 访存指令时，终端 2 会命中 `riscv_cpu_tlb_fill` 断点；命中后执行 `info args`，打印虚拟地址、访问类型等参数，完成观测；输入`c`放行继续执行。
+**2. GDB 双层调试操作流程与环境验证**
+环境一共开启三个终端窗口：
+- **终端 1 (左)**：执行 `make debug`，启动 QEMU 模拟器。
+- **终端 2 (中)**：使用 `sudo gdb` 附加到 QEMU 进程。为了过滤掉无用的 M 态系统启动阶段，精准捕获运行在 S 态的 ucore 内核的地址翻译，我们设置了条件断点 `b get_physical_address if mmu_idx == 1`。
+- **终端 3 (右)**：执行 `make gdb`， 连接并调试 ucore 内核。打完断点后输入 `c` 继续运行。
 
-3. 截图图像分析：
-调试一共捕获三类 TLB 缺失场景，截图见 **Figure 3、Figure 4、Figure 5**。
+**3. 截图图像与源码深度分析**
 
-- Figure 3 `MMU_INST_FETCH`：指令取指发生 TLB 缺失。CPU 需要读取指令，TLB 没有对应表项，进入页表翻译，对指令虚拟地址做 Sv39 页表查询。
-- Figure 4 `MMU_DATA_LOAD`：数据读访问 TLB 缺失。执行 ld/lw 加载内存指令，访问数据虚拟地址，TLB 未命中，进入页表遍历。
-- Figure 5 `MMU_DATA_STORE`：数据写访问 TLB 缺失。执行 sd/sw 存储指令，写内存触发 TLB 缺失，完成虚拟地址翻译之后才可以写入物理内存。
+**【对截图一：参数与调用栈的分析】**
+当断点命中时，截图一展示了 `info args` 和变量打印的详细结果。
+- **地址捕获**：打印出的 `addr = 0xffffffffc02000d6`，这正好是 ucore 内核入口的虚拟地址，表明我们成功捕获了内核启动初期的关键访存。
+- **模式验证**：通过输入 `p/x env->satp`，终端返回了 `0x8000000008020505`。其最高 4 位为 `8`，这**在二进制层面确凿地证明了 ucore 此时已经开启了 Sv39 三级页表机制**。同时，结合代码可知，提取出的根页表物理基址 `base = 0x80205000`。
+- **访问类型**：参数 `access_type` 为 `0`（表示读操作），`mmu_idx = 1`（表示 Supervisor 权限态）。
 
-每次断点命中后通过 `info args` 输出参数：`address` 为待翻译虚拟地址；`access_type` 标记访问类别；`probe=false` 代表真实内存访问。QEMU 软件模拟完成翻译之后，会把翻译结果回填软件 TLB，后续相同虚拟地址访问不再触发该断点。
+**【对截图二：页表遍历循环与 1GiB 大页机制的分析】**
+通过连续单步执行 `n`，截图二展示了 `get_physical_address` 内部最核心的多级页表查询代码。
+- **三个循环的作用**：在 Sv39 架构下，源码中设置了 `levels = 3`。QEMU 使用了一个 `for (i = 0; i < levels; i++, ptshift -= ptidxbits)` 循环，通过软件循环的方式统一处理三级页表的逐级下钻。
+- **那两行操作是从当前页表取出页表项吗？**：是的。截图中的代码正是计算 PTE 物理地址的核心：
+  1. `target_ulong idx = (addr >> (PGSHIFT + ptshift)) & ...`：根据当前遍历的层级，将虚拟地址右移相应的位数，并利用掩码提取出当前级别的 9 位页表索引。
+  2. `target_ulong pte_addr = base + idx * ptesize;`：用当前级别的页表基址 `base`，加上 `idx * 8`（一个 PTE 占 8 字节），从而计算出该页表项在物理内存中的确切地址。
+- **调试数据解析与 1GiB 大页命中**：在单步调试中，我们在终端打印了具体的变量值。因为内核高地址 `0xffffffffc...` 的最高 9 位全为 1，计算得出 `p/d idx` 的值为 **`511`**。此时 `base = 0x80205000`，计算出的 `pte_addr = 0x630b72de3f68`（宿主机视角的物理地址映射）。QEMU 读取该 PTE 后，通过检查标志位，发现根页表这一项已经映射了一个 **1GiB 的叶子大页**。因此，QEMU 在第一级循环就直接完成了地址翻译并返回，根本不需要继续走完后面的两级循环。
 
-4. QEMU 中模拟的 TLB 与真实硬件的逻辑区别：
-真实的 CPU 内部 TLB 是由专门的硬件电路（内容寻址存储器 CAM）组成的，查询完全在硬件层面并行进行，速度极快，对软件透明。
-而 QEMU 是纯软件模拟，它在 `CPURISCVState` 结构体里维护了一个软件数组（或哈希表）来充当 TLB。QEMU 在执行指令（TCG 翻译后的代码）时会先查这个软件数组，如果没命中，才会模拟硬件触发异常，进入 `riscv_cpu_tlb_fill` 进行软件页表遍历，再把结果写回模拟 TLB 中。因此 QEMU 的地址翻译是一步步用 C 语言模拟出来的。
+**4. QEMU 中模拟的 TLB 与真实硬件的逻辑区别**
+- **真实硬件**：TLB 是由专用的 CAM（内容寻址存储器）硬件电路构成的，能够并行匹配所有表项。一旦 TLB 命中，MMU 在一个时钟周期内就能完成虚拟地址到物理地址的转换，整个过程对操作系统完全透明。
+- **QEMU 模拟**：QEMU 在 `CPURISCVState` 结构体里维护了一个软件数组/哈希表来充当 TLB。在执行由 TCG 动态翻译的代码时，会先由软件去“查”这个数组。如果未命中（也就是我们断点触发的场景），才会走 `get_physical_address` 用 C 语言一步一步算 `idx`、算 `pte_addr`、读内存取页表项。查表成功后，QEMU 会手动把结果写回软件 TLB 数组中，以便下次命中。这完整地在软件层面复刻了硬件 MMU 的所有行为。
 ---
 
 **负责人：** 2411846‑鞠昀慧
 
-在已有取指、读、写三类访存观测基础上，进一步针对S态的一次数据读取，验证页表查询、物理地址计算以及软件TLB回填过程。
+在已有基础上，进一步针对S态的一次数据读取，验证页表查询、物理地址计算以及软件TLB回填过程。
 
 1. 设置可重复观测的数据访问：
 
@@ -587,16 +589,11 @@ SPEC首先明确：
 ![Buddy System运行截图](./images/buddy_qemu.png)
 > Figure 2: Buddy System伙伴系统运行测试
 
-![取指TLB调试截图](./images/gdb_fetch.png)
-> Figure 3: MMU_INST_FETCH访问类型观测
+![Sv39 模式验证与调用栈](./images/gdb_args.png)
+> Figure 3: S 态断点命中、satp 验证与完整的 bt 调用栈
 
-![数据加载TLB调试截图](./images/gdb_load.png)
-> Figure 4: MMU_DATA_LOAD访问类型观测
-
-![数据存储TLB调试截图](./images/gdb_store.png)
-> Figure 5: MMU_DATA_STORE访问类型观测
-
-补充说明：Figure 3～5捕获三类访问的TLB填充调用；这些截图中的`mmu_idx=3`不能单独证明发生了S态Sv39页表遍历。实际S态查表与回填结果见鞠昀慧的补充记录。
+![多级页表遍历与 PTE 物理地址计算](./images/gdb_pte.png)
+> Figure 4: 页表遍历循环、索引提取与 1GiB 叶子大页命中分析
 
 ### 5.2 最终组工程的SLUB集成测试
 
