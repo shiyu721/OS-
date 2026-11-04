@@ -81,7 +81,7 @@ void print_regs(struct pushregs *gpr) {
     cprintf("  t6       0x%08x\n", gpr->t6);
 }
 
-//lab3 function2 2411846
+//lab3 function2 2411690
 /* The distributed skeleton omits this constant; ten reports = 1000 ticks. */
 #ifndef SHUTDOWN_AFTER
 #define SHUTDOWN_AFTER 10
@@ -119,7 +119,7 @@ void interrupt_handler(struct trapframe *tf) {
         break;
     }
 }
-
+//lab3 function2 2411690
 void exception_handler(struct trapframe *tf) {
     switch (tf->cause) {
     case CAUSE_ILLEGAL_INSTRUCTION:
