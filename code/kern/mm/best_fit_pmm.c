@@ -4,7 +4,7 @@
 #include <best_fit_pmm.h>
 #include <stdio.h>
 
-//lab2 2411846
+//lab2 2411564
 static free_area_t free_area;
 
 #define free_list (free_area.free_list)
