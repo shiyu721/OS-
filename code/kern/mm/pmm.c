@@ -81,7 +81,7 @@ size_t nr_free_pages(void) {
     return ret;
 }
 
-//lab2 2411846: restored dependency, adapted to this skeleton's DTB interface.
+//lab2 2411564: restored dependency, adapted to this skeleton's DTB interface.
 static void page_init(void) {
     extern char end[];
     va_pa_offset = PHYSICAL_MEMORY_OFFSET;
