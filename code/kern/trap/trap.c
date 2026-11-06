@@ -126,13 +126,12 @@ void exception_handler(struct trapframe *tf) {
     switch (tf->cause) {
     case CAUSE_ILLEGAL_INSTRUCTION:
         cprintf("Illegal instruction at epc = 0x%lx\n", tf->epc);
-        {
-            uint16_t inst = *(uint16_t *)tf->epc;
-            tf->epc += ((inst & 0x3) == 0x3) ? 4 : 2;
-        }
+        uint16_t inst = *(uint16_t *)tf->epc;
+        tf->epc += ((inst & 0x3) == 0x3) ? 4 : 2;
         break;
     case CAUSE_BREAKPOINT:
         cprintf("Breakpoint at epc = 0x%lx\n", tf->epc);
+        uint16_t insn = *(const volatile uint16_t *)tf->epc;
         tf->epc += ((insn & 0x3) == 0x3) ? 4 : 2;
         break;
     default:
