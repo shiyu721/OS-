@@ -81,7 +81,7 @@ void print_regs(struct pushregs *gpr) {
     cprintf("  t6       0x%08x\n", gpr->t6);
 }
 
-//lab3 function2 2411690
+//lab3 function2 2411690 2411564
 /* The distributed skeleton omits this constant; ten reports = 1000 ticks. */
 #ifndef SHUTDOWN_AFTER
 #define SHUTDOWN_AFTER 10
@@ -113,28 +113,28 @@ void interrupt_handler(struct trapframe *tf) {
     case IRQ_S_EXT: cprintf("Supervisor external interrupt\n"); break;
     case IRQ_H_EXT: cprintf("Hypervisor external interrupt\n"); break;
     case IRQ_M_EXT: cprintf("Machine external interrupt\n"); break;
+    case IRQ_COP:     cprintf("Coprocessor interrupt\n"); break;
+    case IRQ_HOST:    cprintf("Host interrupt\n"); break;
     default:
         cprintf("Unknown interrupt: cause %lu\n", (unsigned long)cause);
         print_trapframe(tf);
         break;
     }
 }
-//lab3 function2 2411690
+//lab3 function2 2411690 2411564
 void exception_handler(struct trapframe *tf) {
     switch (tf->cause) {
     case CAUSE_ILLEGAL_INSTRUCTION:
-    case CAUSE_BREAKPOINT: {
-        /* This lab executes readable kernel text. Low two bits distinguish
-         * the tested 16-bit compressed and 32-bit instructions. */
-        uint16_t insn = *(const volatile uint16_t *)tf->epc;
-        if (tf->cause == CAUSE_ILLEGAL_INSTRUCTION) {
-            cprintf("Illegal instruction at 0x%016lx\n", tf->epc);
-        } else {
-            cprintf("Breakpoint at 0x%016lx\n", tf->epc);
+        cprintf("Illegal instruction at epc = 0x%lx\n", tf->epc);
+        {
+            uint16_t inst = *(uint16_t *)tf->epc;
+            tf->epc += ((inst & 0x3) == 0x3) ? 4 : 2;
         }
-        tf->epc += ((insn & 3) == 3) ? 4 : 2;
         break;
-    }
+    case CAUSE_BREAKPOINT:
+        cprintf("Breakpoint at epc = 0x%lx\n", tf->epc);
+        tf->epc += 4;
+        break;
     default:
         print_trapframe(tf);
         break;
