@@ -113,8 +113,8 @@ void interrupt_handler(struct trapframe *tf) {
     case IRQ_S_EXT: cprintf("Supervisor external interrupt\n"); break;
     case IRQ_H_EXT: cprintf("Hypervisor external interrupt\n"); break;
     case IRQ_M_EXT: cprintf("Machine external interrupt\n"); break;
-    case IRQ_COP:     cprintf("Coprocessor interrupt\n"); break;
-    case IRQ_HOST:    cprintf("Host interrupt\n"); break;
+    case IRQ_COP: cprintf("Coprocessor interrupt\n"); break;
+    case IRQ_HOST: cprintf("Host interrupt\n"); break;
     default:
         cprintf("Unknown interrupt: cause %lu\n", (unsigned long)cause);
         print_trapframe(tf);
@@ -133,7 +133,7 @@ void exception_handler(struct trapframe *tf) {
         break;
     case CAUSE_BREAKPOINT:
         cprintf("Breakpoint at epc = 0x%lx\n", tf->epc);
-        tf->epc += 4;
+        tf->epc += ((insn & 0x3) == 0x3) ? 4 : 2;
         break;
     default:
         print_trapframe(tf);
